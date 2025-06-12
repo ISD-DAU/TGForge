@@ -1,0 +1,9 @@
+telethon
+aioconsole
+pandas
+nest_asyncio
+streamlit
+python-docx
+openpyxl
+tenacity
+tabulate

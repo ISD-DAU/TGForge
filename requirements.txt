@@ -1,4 +1,4 @@
-telethon
+telethon==1.28.5
 aioconsole
 pandas
 nest_asyncio

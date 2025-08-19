@@ -47,9 +47,6 @@ if "auth_step" not in st.session_state:
 if st.session_state.auth_step == 1:
     st.subheader("Enter Telegram API Credentials")
     
-    # Add helpful information
-    st.info("📱 Make sure your phone number is registered with Telegram and can receive SMS/calls")
-    
     api_id = st.text_input("API ID", value=st.session_state.get("api_id", ""))
     api_hash = st.text_input("API Hash", value=st.session_state.get("api_hash", ""))
     phone_number = st.text_input("Phone Number (with country code, e.g., +1234567890)", 

@@ -57,20 +57,29 @@ if st.session_state.auth_step == 1:
                 try:
                     st.session_state.api_id = api_id
                     st.session_state.api_hash = api_hash
-                    st.session_state.phone_number = phone_number
+                    st.session_state.phone_number = phone_number.strip()
 
                     if st.session_state.client is None:
                         st.session_state.client = create_client(int(api_id), api_hash)
 
                     async def connect_and_send_code():
-                        await st.session_state.client.connect()        
-                        if not await st.session_state.client.is_authorized():
-                            st.session_state.login_token = await st.session_state.client.request_login_code(phone_number)
+                        await st.session_state.client.connect()
+                        # v1: if already authorized, skip code and go straight to step 3
+                        if await st.session_state.client.is_user_authorized():
+                            return "already_authorized"
+                        # v1: request code to be delivered (usually in Telegram app, SMS fallback)
+                        await st.session_state.client.send_code_request(st.session_state.phone_number)
+                        return "code_sent"
 
-                    
                     st.write("Connecting with Telegram's API...")
-                    st.session_state.event_loop.run_until_complete(connect_and_send_code())
-                    st.session_state.auth_step = 2  
+                    result = st.session_state.event_loop.run_until_complete(connect_and_send_code())
+
+                    if result == "already_authorized":
+                        st.session_state.authenticated = True
+                        st.session_state.auth_step = 3
+                    else:
+                        st.session_state.auth_step = 2
+
                     st.rerun()
 
                 except PhoneNumberInvalidError:
@@ -80,7 +89,16 @@ if st.session_state.auth_step == 1:
 
     with col2:
         if st.button("Reset Session"):
+            # Best-effort logout + delete session
+            try:
+                if st.session_state.get("client"):
+                    st.session_state.event_loop.run_until_complete(st.session_state.client.log_out())
+            except Exception:
+                pass
             delete_session_file()
+            for k in list(st.session_state.keys()):
+                del st.session_state[k]
+            st.rerun()
 
 # --- Step 2: Enter Verification Code ---
 elif st.session_state.auth_step == 2:
@@ -93,10 +111,11 @@ elif st.session_state.auth_step == 2:
         if st.button("Authenticate"):
             try:
                 async def sign_in():
-                    user_or_token = await st.session_state.client.sign_in(st.session_state.login_token, verification_code)
+                    # v1: sign in using phone + code
+                    await st.session_state.client.sign_in(st.session_state.phone_number, verification_code)
 
-                st.session_state.event_loop.run_until_complete(sign_in())  # ✅ Ensure same event loop is used
-                st.session_state.auth_step = 3  
+                st.session_state.event_loop.run_until_complete(sign_in())  # Ensure same event loop is used
+                st.session_state.auth_step = 3
                 st.session_state.authenticated = True
                 st.success("Authentication successful!")
                 st.rerun()
@@ -104,13 +123,22 @@ elif st.session_state.auth_step == 2:
             except PhoneCodeInvalidError:
                 st.error("Invalid verification code. Please try again.")
             except SessionPasswordNeededError:
-                st.error("Two-step verification is enabled. This script does not handle passwords.")
+                # v1 raises this when 2FA is enabled; this UI intentionally doesn't collect passwords
+                st.error("Two-step verification is enabled. This app doesn't handle passwords.")
             except Exception as e:
                 st.error(f"Error: {e}")
 
     with col2:
         if st.button("Reset Session"):
+            try:
+                if st.session_state.get("client"):
+                    st.session_state.event_loop.run_until_complete(st.session_state.client.log_out())
+            except Exception:
+                pass
             delete_session_file()
+            for k in list(st.session_state.keys()):
+                del st.session_state[k]
+            st.rerun()
 
 # --- Step 3: Fetch Channel Info UI ---
 elif st.session_state.auth_step == 3 and st.session_state.authenticated:
@@ -129,7 +157,7 @@ elif st.session_state.auth_step == 3 and st.session_state.authenticated:
     if fetch_option in ["Messages", "Forwards", "Participants"]:
         if fetch_option == "Messages":
             msg_mode = st.radio("Message Mode", [
-                "Original posts only", 
+                "Original posts only",
                 "Original posts + comments (may take significantly longer to load)"
             ])
             include_comments = "comments" in msg_mode.lower()
@@ -169,20 +197,20 @@ elif st.session_state.auth_step == 3 and st.session_state.authenticated:
                 st.error("Please enter at least one valid group name.")
             else:
                 if participant_method == "Default":
-                    (st.session_state.participants_data, 
+                    (st.session_state.participants_data,
                      st.session_state.participants_reported,
                      st.session_state.participants_fetched,
                      st.session_state.participants_group_counts) = st.session_state.event_loop.run_until_complete(
                         fetch_participants(st.session_state.client, groups, method="default")
                     )
                 else:
-                    (st.session_state.participants_data, 
+                    (st.session_state.participants_data,
                      st.session_state.participants_reported,
                      st.session_state.participants_fetched,
                      st.session_state.participants_group_counts) = st.session_state.event_loop.run_until_complete(
                         fetch_participants(st.session_state.client, groups, method="messages", start_date=start_date, end_date=end_date)
                     )
-    
+
     # --- Refresh Button (Clears Display But Keeps Data) ---
     if st.button("🔄 Refresh / Cancel"):
         # Signal cancellation to any running fetch tasks
@@ -239,13 +267,13 @@ elif st.session_state.auth_step == 3 and st.session_state.authenticated:
                 hide_index=True,
                 column_config={
                     "Description": st.column_config.TextColumn(
-                        width="large",  # Expands column width
-                        max_chars=None,  # Removes character limit (default cuts off text)
+                        width="large",
+                        max_chars=None,
                         help="Full text shown when hovered."
                     )
                 }
             )
-        else:            
+        else:
             st.write("### Messages Data Preview (First 25 Rows)")
             st.data_editor(
                 df_messages.head(25),
@@ -253,13 +281,13 @@ elif st.session_state.auth_step == 3 and st.session_state.authenticated:
                 hide_index=True,
                 column_config={
                     "Description": st.column_config.TextColumn(
-                        width="large",  # Expands column width
-                        max_chars=None,  # Removes character limit (default cuts off text)
+                        width="large",
+                        max_chars=None,
                         help="Full text shown when hovered."
                     )
                 }
             )
-            
+
     # ✅ Show first 25 rows of forward counts in a table
     if "forward_counts" in st.session_state and st.session_state.forward_counts is not None:
         df_counts = pd.DataFrame(st.session_state.forward_counts)
@@ -276,22 +304,22 @@ elif st.session_state.auth_step == 3 and st.session_state.authenticated:
         df_urls = pd.DataFrame(st.session_state.top_urls)
         st.write("### Top URLs")
         st.data_editor(df_urls.head(25))
-        
+
     # ✅ Show first 25 rows of top hashtags
     if "top_hashtags" in st.session_state and st.session_state.top_hashtags is not None:
         df_hashtags = pd.DataFrame(st.session_state.top_hashtags)
         st.write("### Top Hashtags")
         st.data_editor(df_hashtags.head(25))
-    
+
     if "participants_data" in st.session_state and not pd.DataFrame(st.session_state.participants_data).empty:
         st.write("### Participants (Aggregated by User)")
         df_participants = pd.DataFrame(st.session_state.participants_data)
 
         # Explicitly define known user info columns.
         user_cols = [
-            "User ID", "Deleted", "Is Bot", "Verified", "Restricted", "Scam", "Fake", 
-            "Premium", "Access Hash", "First Name", "Last Name", "Username", "Phone", 
-            "Status", "Timezone Info", "Restriction Reason", "Language Code", "Last Seen", 
+            "User ID", "Deleted", "Is Bot", "Verified", "Restricted", "Scam", "Fake",
+            "Premium", "Access Hash", "First Name", "Last Name", "Username", "Phone",
+            "Status", "Timezone Info", "Restriction Reason", "Language Code", "Last Seen",
             "Profile Picture DC ID", "Profile Picture Photo ID"
         ]
         # Assume that any column not in user_cols is a group membership flag.
@@ -311,7 +339,7 @@ elif st.session_state.auth_step == 3 and st.session_state.authenticated:
             aggregated[group_cols] = aggregated[group_cols].fillna(0).apply(pd.to_numeric, errors='coerce').fillna(0).astype(int)
             # Calculate the number of groups for each user.
             aggregated["Group Count"] = aggregated[group_cols].sum(axis=1)
-            # Build a comma‑separated list of groups for each user.
+            # Build a comma-separated list of groups for each user.
             aggregated["Groups"] = aggregated[group_cols].apply(
                 lambda row: ", ".join([col for col in group_cols if row[col] == 1]), axis=1
             )
@@ -342,21 +370,21 @@ elif st.session_state.auth_step == 3 and st.session_state.authenticated:
 
     def plot_vot_chart(df, index_col, title, freq="D"):
         st.subheader(title)
-    
+
         if df.empty:
             st.warning("No data available.")
             return
-    
+
         df[index_col] = pd.to_datetime(df[index_col], errors="coerce")
         df = df.set_index(index_col)
-    
+
         full_range = pd.date_range(start=df.index.min(), end=df.index.max(), freq=freq)
         df = df.reindex(full_range, fill_value=0)
         df.index.name = index_col
         df.reset_index(inplace=True)
-    
+
         show_total = st.toggle(f"Show aggregated total for {title}", value=False)
-    
+
         if show_total:
             df["Total"] = df.select_dtypes(include=["number"]).iloc[:, 1:].sum(axis=1)
             df = df[[index_col, "Total"]]
@@ -364,11 +392,11 @@ elif st.session_state.auth_step == 3 and st.session_state.authenticated:
         else:
             num_lines = df.shape[1] - 1
             colors = COLOR_PALETTE[:num_lines] if num_lines <= len(COLOR_PALETTE) else None
-    
+
         df_plot = df.set_index(index_col)
         df_plot = df_plot.select_dtypes(include=["number"])
         df_plot.columns = [clean_column_name(c) for c in df_plot.columns]
-    
+
         st.line_chart(df_plot, color=colors)
 
     # ✅ Show Volume Over Time Charts with Missing Dates Filled
@@ -386,14 +414,14 @@ elif st.session_state.auth_step == 3 and st.session_state.authenticated:
         df_monthly = pd.DataFrame(st.session_state.monthly_volume)
         df_monthly = df_monthly.fillna(0)
         plot_vot_chart(df_monthly, "Year-Month", "Monthly Message Volume", freq="MS")
-     
+
     # CSV Download
     if "messages_data" in st.session_state and st.session_state.messages_data is not None:
         df_messages = pd.DataFrame(st.session_state.messages_data)
-    
+
         st.subheader("Export Raw Data")
         format_option = st.selectbox("Choose export format for raw Telegram data:", ["CSV", "Markdown", "Excel"], key="messages_export_format")
-    
+
         if format_option == "CSV":
             csv_output = io.BytesIO()
             df_messages.to_csv(csv_output, index=False)
@@ -404,7 +432,7 @@ elif st.session_state.auth_step == 3 and st.session_state.authenticated:
                 file_name="messages.csv",
                 mime="text/csv",
             )
-    
+
         elif format_option == "Markdown":
             markdown_output = convert_df_to_markdown(df_messages.head(1000))  # Limit size if needed
             st.download_button(
@@ -413,7 +441,7 @@ elif st.session_state.auth_step == 3 and st.session_state.authenticated:
                 file_name="messages.md",
                 mime="text/markdown",
             )
-    
+
         elif format_option == "Excel":
             output_xlsx = io.BytesIO()
             with pd.ExcelWriter(output_xlsx, engine="openpyxl") as writer:
@@ -425,7 +453,7 @@ elif st.session_state.auth_step == 3 and st.session_state.authenticated:
                 file_name="messages.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
-    
+
     # XLSX Download
     if "messages_data" in st.session_state and st.session_state.messages_data is not None:
         st.subheader("Export Channel(s) Analytics")
@@ -433,11 +461,11 @@ elif st.session_state.auth_step == 3 and st.session_state.authenticated:
         df_messages = pd.DataFrame(st.session_state.messages_data).nlargest(50, "Views")  # Top 50 most viewed messages
         df_top_domains = pd.DataFrame(st.session_state.top_domains).head(25)               # Top 25 shared domains
         df_top_urls = pd.DataFrame(st.session_state.top_urls).head(25)                     # Top 25 shared URLs
-        df_forward_counts = pd.DataFrame(st.session_state.forward_counts)                # Forward counts
+        df_forward_counts = pd.DataFrame(st.session_state.forward_counts)                  # Forward counts
         df_top_hashtags = pd.DataFrame(st.session_state.top_hashtags).head(25)             # Top 25 hashtags
-        df_daily_volume = pd.DataFrame(st.session_state.daily_volume)                    # Daily volume
-        df_weekly_volume = pd.DataFrame(st.session_state.weekly_volume)                  # Weekly volume
-        df_monthly_volume = pd.DataFrame(st.session_state.monthly_volume)                # Monthly volume
+        df_daily_volume = pd.DataFrame(st.session_state.daily_volume)                      # Daily volume
+        df_weekly_volume = pd.DataFrame(st.session_state.weekly_volume)                    # Weekly volume
+        df_monthly_volume = pd.DataFrame(st.session_state.monthly_volume)                  # Monthly volume
 
         output_xlsx = io.BytesIO()
         with pd.ExcelWriter(output_xlsx, engine="openpyxl") as writer:
@@ -462,10 +490,10 @@ elif st.session_state.auth_step == 3 and st.session_state.authenticated:
         st.subheader("Export Channel(s) Analytics")
         df_forwards = pd.DataFrame(st.session_state.forwards_data)
         df_forward_counts = pd.DataFrame(st.session_state.forward_counts)
-    
+
         st.subheader("📤 Export Forwards Data")
         format_option = st.selectbox("Choose export format:", ["CSV", "Markdown", "Excel"], key="forwards_export_format")
-    
+
         if format_option == "CSV":
             csv_output = io.BytesIO()
             df_forwards.to_csv(csv_output, index=False)
@@ -476,7 +504,7 @@ elif st.session_state.auth_step == 3 and st.session_state.authenticated:
                 file_name="forwards.csv",
                 mime="text/csv",
             )
-    
+
         elif format_option == "Markdown":
             markdown_output = convert_df_to_markdown(df_forwards.head(1000))
             st.download_button(
@@ -485,7 +513,7 @@ elif st.session_state.auth_step == 3 and st.session_state.authenticated:
                 file_name="forwards.md",
                 mime="text/markdown",
             )
-    
+
         elif format_option == "Excel":
             output_xlsx = io.BytesIO()
             with pd.ExcelWriter(output_xlsx, engine="openpyxl") as writer:
@@ -502,11 +530,11 @@ elif st.session_state.auth_step == 3 and st.session_state.authenticated:
     elif "participants_data" in st.session_state and not pd.DataFrame(st.session_state.participants_data).empty:
         st.subheader("Export Channel(s) Analytics")
         df_participants = pd.DataFrame(st.session_state.participants_data)
-    
+
         user_cols = [
-            "User ID", "Deleted", "Is Bot", "Verified", "Restricted", "Scam", "Fake", 
-            "Premium", "Access Hash", "First Name", "Last Name", "Username", "Phone", 
-            "Status", "Timezone Info", "Restriction Reason", "Language Code", "Last Seen", 
+            "User ID", "Deleted", "Is Bot", "Verified", "Restricted", "Scam", "Fake",
+            "Premium", "Access Hash", "First Name", "Last Name", "Username", "Phone",
+            "Status", "Timezone Info", "Restriction Reason", "Language Code", "Last Seen",
             "Profile Picture DC ID", "Profile Picture Photo ID"
         ]
         group_cols = [col for col in df_participants.columns if col not in user_cols]
@@ -526,10 +554,10 @@ elif st.session_state.auth_step == 3 and st.session_state.authenticated:
         else:
             aggregated["Group Count"] = 0
             aggregated["Groups"] = ""
-    
+
         st.subheader("📤 Export Participants Data")
         format_option = st.selectbox("Choose export format:", ["CSV", "Markdown", "Excel"], key="participants_export_format")
-    
+
         if format_option == "CSV":
             csv_output = io.BytesIO()
             aggregated.to_csv(csv_output, index=False)
@@ -540,7 +568,7 @@ elif st.session_state.auth_step == 3 and st.session_state.authenticated:
                 file_name="participants.csv",
                 mime="text/csv",
             )
-    
+
         elif format_option == "Markdown":
             markdown_output = convert_df_to_markdown(aggregated.head(1000))
             st.download_button(
@@ -549,7 +577,7 @@ elif st.session_state.auth_step == 3 and st.session_state.authenticated:
                 file_name="participants.md",
                 mime="text/markdown",
             )
-    
+
         elif format_option == "Excel":
             output_xlsx_participants = io.BytesIO()
             with pd.ExcelWriter(output_xlsx_participants, engine="openpyxl") as writer:
@@ -562,7 +590,7 @@ elif st.session_state.auth_step == 3 and st.session_state.authenticated:
                 file_name="participants_analysis.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
-            
+
 st.markdown(
     """
     <div style="text-align: center; margin-top: 50px;">

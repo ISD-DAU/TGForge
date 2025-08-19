@@ -63,10 +63,11 @@ if st.session_state.auth_step == 1:
                         st.session_state.client = create_client(int(api_id), api_hash)
 
                     async def connect_and_send_code():
-                        await st.session_state.client.connect()
-                        if not await st.session_state.client.is_user_authorized():
-                            await st.session_state.client.send_code_request(phone_number)
+                        await st.session_state.client.connect()        
+                        if not await st.session_state.client.is_authorized():
+                            st.session_state.login_token = await st.session_state.client.request_login_code(phone_number)
 
+                    
                     st.write("Connecting with Telegram's API...")
                     st.session_state.event_loop.run_until_complete(connect_and_send_code())
                     st.session_state.auth_step = 2  
@@ -92,7 +93,7 @@ elif st.session_state.auth_step == 2:
         if st.button("Authenticate"):
             try:
                 async def sign_in():
-                    await st.session_state.client.sign_in(st.session_state.phone_number, verification_code)
+                    user_or_token = await st.session_state.client.sign_in(st.session_state.login_token, verification_code)
 
                 st.session_state.event_loop.run_until_complete(sign_in())  # ✅ Ensure same event loop is used
                 st.session_state.auth_step = 3  

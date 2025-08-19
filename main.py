@@ -64,12 +64,25 @@ if st.session_state.auth_step == 1:
 
                     async def connect_and_send_code():
                         await st.session_state.client.connect()
-                        # v1: if already authorized, skip code and go straight to step 3
+                    
+                        # 1) Already authorized? Skip code.
                         if await st.session_state.client.is_user_authorized():
-                            return "already_authorized"
-                        # v1: request code to be delivered (usually in Telegram app, SMS fallback)
-                        await st.session_state.client.send_code_request(st.session_state.phone_number)
-                        return "code_sent"
+                            return {"status": "already_authorized"}
+                    
+                        # 2) Request code (optionally force SMS)
+                        force_sms = st.session_state.get("force_sms", False)
+                        sent = await st.session_state.client.send_code_request(
+                            st.session_state.phone_number,
+                            force_sms=force_sms
+                        )
+                    
+                        # Store for Step 2 / debugging
+                        st.session_state.sent_code = {
+                            "type": type(sent.type).__name__,  # e.g. SentCodeTypeApp/Sms/Call
+                            "next_type": type(sent.next_type).__name__ if getattr(sent, "next_type", None) else None,
+                            "timeout": getattr(sent, "timeout", None)
+                        }
+                        return {"status": "code_sent"}
 
                     st.write("Connecting with Telegram's API...")
                     result = st.session_state.event_loop.run_until_complete(connect_and_send_code())

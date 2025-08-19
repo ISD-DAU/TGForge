@@ -43,235 +43,176 @@ if "auth_step" not in st.session_state:
     st.session_state.authenticated = False
     st.session_state.client = None
 
-# --- Step 1: Enter Telegram API Credentials ---
+# --- Step 1: Enter API Credentials --- 
 if st.session_state.auth_step == 1:
     st.subheader("Enter Telegram API Credentials")
-
+    
+    # Add helpful information
+    st.info("📱 Make sure your phone number is registered with Telegram and can receive SMS/calls")
+    
     api_id = st.text_input("API ID", value=st.session_state.get("api_id", ""))
     api_hash = st.text_input("API Hash", value=st.session_state.get("api_hash", ""))
-    phone_number = st.text_input("Phone Number (e.g., +1 2224448888)")
-    st.checkbox("Force SMS (fallback if in-app code is being missed)", key="force_sms")
-
-    # State used by the email-required flow
-    st.session_state.setdefault("email_required", False)
-    st.session_state.setdefault("login_email", "")
-    st.session_state.setdefault("email_sent", False)
-
+    phone_number = st.text_input("Phone Number (with country code, e.g., +1234567890)", 
+                                placeholder="+1234567890")
+    
+    # Add phone number validation
+    if phone_number and not phone_number.startswith('+'):
+        st.warning("⚠️ Phone number should include country code starting with '+'")
+    
     col1, col2 = st.columns([2, 1])
-
+    
     with col1:
-        if st.button("Next"):
+        if st.button("Send Verification Code"):
             if api_id and api_hash and phone_number:
                 try:
+                    # Validate inputs
+                    if not phone_number.startswith('+'):
+                        st.error("Phone number must start with '+' followed by country code")
+                        st.stop()
+                    
+                    if not api_id.isdigit():
+                        st.error("API ID should be numeric")
+                        st.stop()
+                    
+                    # Store credentials
                     st.session_state.api_id = api_id
-                    st.session_state.api_hash = api_hash
-                    st.session_state.phone_number = phone_number.strip()
-
+                    st.session_state.api_hash = api_hash  
+                    st.session_state.phone_number = phone_number
+                    
+                    # Create client if it doesn't exist
                     if st.session_state.client is None:
                         st.session_state.client = create_client(int(api_id), api_hash)
-
+                    
                     async def connect_and_send_code():
-                        await st.session_state.client.connect()
-
-                        # Already logged in? Skip to Step 3.
-                        if await st.session_state.client.is_user_authorized():
-                            return {"status": "already_authorized"}
-
-                        # Ask Telegram to send the login code (v1 flow).
-                        sent = await st.session_state.client.send_code_request(
-                            st.session_state.phone_number,
-                            force_sms=st.session_state.get("force_sms", False),
-                        )
-
-                        # Keep for Step 2 & email-setup flow.
-                        st.session_state.phone_code_hash = sent.phone_code_hash
-                        st.session_state.sent_code = {
-                            "type": type(sent.type).__name__,      # e.g. SentCodeTypeApp/SentCodeTypeSms/...
-                            "next_type": type(sent.next_type).__name__ if getattr(sent, "next_type", None) else None,
-                            "timeout": getattr(sent, "timeout", None),
-                        }
-
-                        # Detect the "must set up email first" case.
-                        st.session_state.email_required = (
-                            type(sent.type).__name__ == "SentCodeTypeSetUpEmailRequired"
-                        )
-
-                        return {"status": "code_sent"}
-
-                    st.write("Connecting with Telegram's API...")
-                    result = st.session_state.event_loop.run_until_complete(connect_and_send_code())
-
-                    if result["status"] == "already_authorized":
-                        st.info("Already authorized — skipping code step.")
-                        st.session_state.authenticated = True
-                        st.session_state.auth_step = 3
-                    else:
-                        sc = st.session_state.get("sent_code", {})
-                        st.info(
-                            f"Login code delivery: {sc.get('type', 'Unknown')} "
-                            f"(next: {sc.get('next_type')}, timeout: {sc.get('timeout')})"
-                        )
-
-                        # If email is required, stay in Step 1 to collect/verify email.
-                        if st.session_state.email_required:
-                            st.warning("Telegram requires you to set up and verify a login email before continuing.")
-                            # Show email inputs below (same step); once verified, we advance to Step 2.
-                        else:
-                            st.session_state.auth_step = 2
-
-                    st.rerun()
-
-                except PhoneNumberInvalidError:
-                    st.error("Invalid phone number. Please check and try again.")
-                except Exception as e:
-                    st.error(f"Error: {e}")
-
-    with col2:
-        if st.button("Reset Session"):
-            # Best-effort logout + delete session
-            try:
-                if st.session_state.get("client"):
-                    st.session_state.event_loop.run_until_complete(st.session_state.client.log_out())
-            except Exception:
-                pass
-            delete_session_file()
-            for k in list(st.session_state.keys()):
-                del st.session_state[k]
-            st.rerun()
-
-    # --- Inline UI for the email-required flow (still in Step 1) ---
-    if st.session_state.email_required:
-        st.markdown("#### Set up login email")
-        st.session_state.login_email = st.text_input(
-            "Email address (Telegram will send a verification code here)",
-            value=st.session_state.get("login_email", "")
-        )
-
-        send_col, verify_col = st.columns(2)
-
-        with send_col:
-            if st.button("Send verification code to email"):
-                if not st.session_state.login_email:
-                    st.error("Please enter an email address first.")
-                else:
-                    try:
-                        async def send_email_code():
-                            # Ask Telegram to send a verification code to this email for login setup.
-                            return await st.session_state.client(functions.account.SendVerifyEmailCodeRequest(
-                                purpose=types.EmailVerifyPurposeLoginSetup(
-                                    phone_number=st.session_state.phone_number,
-                                    phone_code_hash=st.session_state.phone_code_hash,
-                                ),
-                                email=st.session_state.login_email,
-                            ))
-                        _ = st.session_state.event_loop.run_until_complete(send_email_code())
-                        st.session_state.email_sent = True
-                        st.success("Verification code sent to your email. Enter it below and click Verify.")
-                    except Exception as e:
-                        st.error(f"Failed to send email verification code: {e}")
-
-        with verify_col:
-            email_code = st.text_input("Email verification code", value="", key="email_code_input")
-            if st.button("Verify email"):
-                if not st.session_state.email_sent:
-                    st.error("Please click 'Send verification code to email' first.")
-                elif not email_code:
-                    st.error("Please enter the code sent to your email.")
-                else:
-                    try:
-                        async def verify_email_code():
-                            # Submit the code you received by email to complete the email setup.
-                            return await st.session_state.client(functions.account.VerifyEmailRequest(
-                                purpose=types.EmailVerifyPurposeLoginSetup(
-                                    phone_number=st.session_state.phone_number,
-                                    phone_code_hash=st.session_state.phone_code_hash,
-                                ),
-                                verification=types.EmailVerificationCode(email_code),
-                            ))
-
-                        _ = st.session_state.event_loop.run_until_complete(verify_email_code())
-
-                        # Email verified successfully: request a fresh login code again.
-                        async def request_after_email():
-                            sent2 = await st.session_state.client.send_code_request(
-                                st.session_state.phone_number,
-                                force_sms=st.session_state.get("force_sms", False),
-                            )
-                            st.session_state.phone_code_hash = sent2.phone_code_hash
-                            st.session_state.sent_code = {
-                                "type": type(sent2.type).__name__,
-                                "next_type": type(sent2.next_type).__name__ if getattr(sent2, "next_type", None) else None,
-                                "timeout": getattr(sent2, "timeout", None),
-                            }
-                            return sent2
-
-                        sent2 = st.session_state.event_loop.run_until_complete(request_after_email())
-                        st.info(
-                            f"Login code delivery (after email setup): {type(sent2.type).__name__} "
-                            f"(next: {type(sent2.next_type).__name__ if getattr(sent2, 'next_type', None) else None}, "
-                            f"timeout: {getattr(sent2, 'timeout', None)})"
-                        )
-
-                        # Move to Step 2 to enter the **login code** (now usually delivered via email).
-                        st.session_state.email_required = False
-                        st.session_state.email_sent = False
+                        try:
+                            # Ensure we're connected
+                            if not st.session_state.client.is_connected():
+                                await st.session_state.client.connect()
+                            
+                            # Check if already authorized
+                            if await st.session_state.client.is_user_authorized():
+                                st.success("Already authenticated! Proceeding...")
+                                st.session_state.auth_step = 3
+                                st.session_state.authenticated = True
+                                return
+                            
+                            # Send code request with error handling
+                            st.info("📤 Sending verification code...")
+                            result = await st.session_state.client.send_code_request(phone_number)
+                            
+                            # Store the phone_code_hash for later use
+                            st.session_state.phone_code_hash = result.phone_code_hash
+                            
+                            st.success("✅ Verification code sent! Check your Telegram app or SMS.")
+                            st.info(f"📱 Code sent via: {result.type}")
+                            
+                        except Exception as e:
+                            st.error(f"Failed to send code: {str(e)}")
+                            # Try to disconnect and clean up
+                            try:
+                                await st.session_state.client.disconnect()
+                                st.session_state.client = None
+                            except:
+                                pass
+                            raise e
+                    
+                    with st.spinner("Connecting to Telegram..."):
+                        st.session_state.event_loop.run_until_complete(connect_and_send_code())
                         st.session_state.auth_step = 2
                         st.rerun()
-
-                    except Exception as e:
-                        st.error(f"Email verification failed: {e}")
+                        
+                except PhoneNumberInvalidError:
+                    st.error("❌ Invalid phone number. Please check the format and try again.")
+                    st.info("Make sure to include the country code (e.g., +1 for US, +44 for UK)")
+                except Exception as e:
+                    st.error(f"❌ Connection error: {e}")
+                    st.info("Check your internet connection and API credentials")
+            else:
+                st.warning("Please fill in all fields")
+    
+    with col2:
+        if st.button("Reset Session"):
+            # Clean up client connection
+            if st.session_state.client and st.session_state.client.is_connected():
+                try:
+                    st.session_state.event_loop.run_until_complete(
+                        st.session_state.client.disconnect()
+                    )
+                except:
+                    pass
+            st.session_state.client = None
+            delete_session_file()
+            st.success("Session reset successfully")
+            st.rerun()
 
 # --- Step 2: Enter Verification Code ---
 elif st.session_state.auth_step == 2:
-    st.subheader("Enter the login code")
-    st.caption("Check the Telegram app first; if you just set up email, the code will be sent to your email.")
-
-    verification_code = st.text_input("Login code (not your email code)")
-
-    col1, col2 = st.columns([2, 1])
-
+    st.subheader("Enter Verification Code")
+    
+    st.info("📱 Check your Telegram app for the verification code")
+    
+    verification_code = st.text_input("Enter the 5-digit verification code", 
+                                     max_chars=5, 
+                                     placeholder="12345")
+    
+    col1, col2, col3 = st.columns([2, 1, 1])
+    
     with col1:
-        if st.button("Authenticate"):
-            try:
-                async def sign_in():
-                    # v1: sign in using phone + login code
-                    await st.session_state.client.sign_in(
-                        st.session_state.phone_number,
-                        verification_code
-                    )
-                st.session_state.event_loop.run_until_complete(sign_in())
-
-                st.session_state.auth_step = 3
-                st.session_state.authenticated = True
-                st.success("Authentication successful!")
-
-                # (Optional) confirm who we are
-                async def whoami():
-                    me = await st.session_state.client.get_me()
-                    return getattr(me, "username", None) or getattr(me, "phone", None) or me.id
-                identity = st.session_state.event_loop.run_until_complete(whoami())
-                st.info(f"Authenticated as: {identity}")
-
-                st.rerun()
-
-            except PhoneCodeInvalidError:
-                st.error("Invalid login code. Please try again.")
-            except SessionPasswordNeededError:
-                # v1 raises this when 2FA (password) is enabled; this UI intentionally doesn't collect passwords
-                st.error("Two-step verification is enabled on this account. This app doesn't handle passwords.")
-            except Exception as e:
-                st.error(f"Error: {e}")
-
+        if st.button("Verify Code"):
+            if verification_code and len(verification_code) >= 5:
+                try:
+                    async def sign_in():
+                        try:
+                            # Use the stored phone_code_hash if available
+                            if hasattr(st.session_state, 'phone_code_hash'):
+                                await st.session_state.client.sign_in(
+                                    st.session_state.phone_number, 
+                                    verification_code,
+                                    phone_code_hash=st.session_state.phone_code_hash
+                                )
+                            else:
+                                await st.session_state.client.sign_in(
+                                    st.session_state.phone_number, 
+                                    verification_code
+                                )
+                                
+                        except Exception as e:
+                            st.error(f"Sign-in failed: {str(e)}")
+                            raise e
+                    
+                    with st.spinner("Verifying code..."):
+                        st.session_state.event_loop.run_until_complete(sign_in())
+                        st.session_state.auth_step = 3
+                        st.session_state.authenticated = True
+                        st.success("🎉 Authentication successful!")
+                        st.rerun()
+                        
+                except PhoneCodeInvalidError:
+                    st.error("❌ Invalid verification code. Please check and try again.")
+                except SessionPasswordNeededError:
+                    st.error("❌ Two-step verification is enabled. Please disable it temporarily or implement 2FA handling.")
+                    st.info("You can disable 2FA in Telegram Settings > Privacy and Security > Two-Step Verification")
+                except Exception as e:
+                    st.error(f"❌ Authentication error: {e}")
+            else:
+                st.warning("Please enter a valid 5-digit code")
+    
     with col2:
-        if st.button("Reset Session"):
+        if st.button("Resend Code"):
             try:
-                if st.session_state.get("client"):
-                    st.session_state.event_loop.run_until_complete(st.session_state.client.log_out())
-            except Exception:
-                pass
-            delete_session_file()
-            for k in list(st.session_state.keys()):
-                del st.session_state[k]
+                async def resend_code():
+                    result = await st.session_state.client.send_code_request(st.session_state.phone_number)
+                    st.session_state.phone_code_hash = result.phone_code_hash
+                
+                st.session_state.event_loop.run_until_complete(resend_code())
+                st.success("🔄 New code sent!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Failed to resend code: {e}")
+    
+    with col3:
+        if st.button("Back"):
+            st.session_state.auth_step = 1
             st.rerun()
 
 # --- Step 3: Fetch Channel Info UI ---

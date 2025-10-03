@@ -1,3 +1,4 @@
+#fetch_channel.py
 from telethon import functions
 
 async def get_first_valid_message_date(client, channel):

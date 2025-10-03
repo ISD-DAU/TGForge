@@ -94,18 +94,37 @@ async def fetch_messages(client, channel_list, start_date=None, end_date=None, i
                     sender_user_id = getattr(channel, "id", "Not Available")
                     sender_username = getattr(channel, "username", "Not Available")
                     
-                original_username = "Not Available"
+                original_username = None
                 if is_forward:
                     try:
                         if message.forward.chat and hasattr(message.forward.chat, "username"):
                             original_username = message.forward.chat.username
                     except AttributeError:
-                        original_username = "Unknown"
+                        original_username = None
 
                 message_url = f"https://t.me/{channel.username}/{message.id}" if hasattr(channel, "username") else "No URL available"
 
+                # Process engagement metrics to ensure they are integers
+                replies_count = message.replies.replies if message.replies else 0
+                forwards_count = message.forwards if message.forwards else 0
+                reactions_count = reactions  # already calculated above
+                total_engagement = replies_count + forwards_count + reactions_count
+
+                # Extract domains from URLs
+                domains_shared = []
+                for url in urls_shared:
+                    try:
+                        parsed = urlparse(url)
+                        domain = re.sub(r"^www\.", "", parsed.netloc).lower() if parsed.netloc else None
+                        if domain:
+                            domains_shared.append(domain)
+                    except:
+                        pass
+                        
                 message_data = {
                     "Channel": channel_name,
+                    "Platform": "Telegram",
+                    "Site": "t.me",
                     "Message ID": message.id,
                     "Parent Message ID": None,  # This is for main messages; replies will have an actual Parent Message ID
                     "Sender User ID": sender_user_id,
@@ -118,14 +137,18 @@ async def fetch_messages(client, channel_list, start_date=None, end_date=None, i
                     "Geo-location": geo_location,
                     "Hashtags": hashtags,
                     "URLs Shared": urls_shared,
-                    "Reactions": reactions,
+                    "Domains Shared": domains_shared,
+                    "Reactions": reactions_count,
                     "Message URL": message_url,
-                    "Views": message.views if message.views else None,
-                    "Forwards": message.forwards if message.forwards else None,
-                    "Replies": message.replies.replies if message.replies else "No Replies",
+                    "Views": message.views if message.views else 0,
+                    "Forwards": forwards_count,
+                    "Replies": replies_count,
+                    "Total Engagement": total_engagement,
+                    "Grouped ID": str(message.grouped_id) if message.grouped_id else "Not Available",
                     "Reply To Message Snippet": None,
                     "Reply To Message Sender": None,
-                    "Grouped ID": str(message.grouped_id) if message.grouped_id else "Not Available",
+                    "Engaging With": original_username if original_username else None,
+                    "Post Type": "Share" if bool(reply.forward) else "Reply",
                 }
                 
                 # Fetch Replies (Nested Comments)
@@ -145,8 +168,28 @@ async def fetch_messages(client, channel_list, start_date=None, end_date=None, i
                                 reply_user_id = getattr(channel, "id", "Not Available")
                                 reply_username = getattr(channel, "username", "Not Available")
 
+                            # Process engagement metrics for replies
+                            reply_reactions = sum([reaction.count for reaction in reply.reactions.results]) if reply.reactions else 0
+                            reply_replies_count = reply.replies.replies if reply.replies else 0
+                            reply_forwards_count = reply.forwards if reply.forwards else 0
+                            reply_total_engagement = reply_replies_count + reply_forwards_count + reply_reactions
+
+                            # Extract domains from reply URLs
+                            reply_urls = re.findall(r"(https?://\S+)", reply.text) if reply.text else []
+                            reply_domains = []
+                            for url in reply_urls:
+                                try:
+                                    parsed = urlparse(url)
+                                    domain = re.sub(r"^www\.", "", parsed.netloc).lower() if parsed.netloc else None
+                                    if domain:
+                                        reply_domains.append(domain)
+                                except:
+                                    pass
+                                    
                             reply_data = {
                                 "Channel": channel_name,
+                                "Platform": "Telegram",
+                                "Site": "t.me",
                                 "Message ID": reply.id,
                                 "Parent Message ID": message.id,  # Reference to original message
                                 "Sender User ID": reply_user_id,
@@ -159,14 +202,18 @@ async def fetch_messages(client, channel_list, start_date=None, end_date=None, i
                                 "Geo-location": f"{reply.geo.lat}, {reply.geo.long}" if reply.geo else "None",
                                 "Hashtags": [tag for tag in reply.text.split() if tag.startswith("#")] if reply.text else [],
                                 "URLs Shared": re.findall(r"(https?://\S+)", reply.text) if reply.text else [],
-                                "Reactions": sum([reaction.count for reaction in reply.reactions.results]) if reply.reactions else 0,
+                                "Domains Shared": reply_domains,
+                                "Reactions": reply_reactions,
                                 "Message URL": f"https://t.me/{channel.username}/{reply.id}" if hasattr(channel, "username") else "No URL available",
-                                "Views": reply.views if reply.views else None,
-                                "Forwards": reply.forwards if reply.forwards else None,
-                                "Replies": reply.replies.replies if reply.replies else "No Replies",
+                                "Views": reply.views if reply.views else 0,
+                                "Forwards": reply_forwards_count,
+                                "Replies": reply_replies_count,
+                                "Total Engagement": reply_total_engagement,
                                 "Reply To Message Snippet": message.text[:100] + "..." if message.text else "No Text",
-                                "Reply To Message Sender": message.sender.username if message.sender and hasattr(message.sender, "username") else "Not Available",
+                                "Reply To Message Sender": message.sender.username if message.sender and hasattr(message.sender, "username") else None,
                                 "Grouped ID": str(reply.grouped_id) if reply.grouped_id else "Not Available",
+                                "Engaging With": (message.sender.username if message.sender and hasattr(message.sender, "username") else None) or original_username,
+                                "Post Type": "Share" if bool(reply.forward) else "Reply",
                             }
                             
                             messages_data.append(reply_data)

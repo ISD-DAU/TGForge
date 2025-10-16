@@ -8,6 +8,7 @@ from fetch_forwards import fetch_forwards
 from fetch_messages import fetch_messages
 from fetch_participants import fetch_participants
 from fetch_subscriptions import fetch_user_subscriptions
+from fetch_users import fetch_user_data
 from telethon import functions, types
 from telethon.errors import PhoneNumberInvalidError, PhoneCodeInvalidError, SessionPasswordNeededError
 import nest_asyncio
@@ -218,13 +219,23 @@ elif st.session_state.auth_step == 3 and st.session_state.authenticated:
     st.subheader("Fetch Telegram Channel Data")
 
     # Choose what to fetch
-    fetch_option = st.radio("Select Data to Fetch:", ["Channel Info", "Messages", "Forwards", "Participants", "My Subscriptions"])
+    fetch_option = st.radio("Select Data to Fetch:", 
+                            ["Channel Info", "Messages", "Forwards", "Participants", "My Subscriptions", "User Lookup"])
     
-    # Channel usernames input (only show if not fetching subscriptions)
-    if fetch_option != "My Subscriptions":
+    # Channel usernames input (only show if not fetching subscriptions or user lookup)
+    if fetch_option not in ["My Subscriptions", "User Lookup"]:
         channel_input = st.text_area("Enter Telegram channel usernames (comma-separated):", "")
     else:
-        channel_input = ""  # Set empty string so it doesn't break other code
+        channel_input = ""
+    
+    # User IDs input (only show if fetching user lookup)
+    if fetch_option == "User Lookup":
+        user_ids_input = st.text_area(
+            "Enter User IDs (comma-separated):", 
+            placeholder="111411058, 987654321",
+            help="Enter numeric user IDs separated by commas"
+        )
+        st.info("💡 Note: You can only look up users that Telethon has cached (from mutual groups/channels)")
 
     # For Messages, Forwards, and Participants, allow optional date range filtering
     participant_method = "Default"
@@ -302,7 +313,7 @@ elif st.session_state.auth_step == 3 and st.session_state.authenticated:
                     "top_urls", "top_domains", "forward_counts", "daily_volume",
                     "weekly_volume", "monthly_volume", "participants_data",
                     "participants_reported", "participants_fetched", "participants_group_counts",
-                    "subscription_channels", "subscription_groups"]:
+                    "subscription_channels", "subscription_groups", "user_data"]:
         
             if key in st.session_state:
                 del st.session_state[key]
@@ -478,7 +489,40 @@ elif st.session_state.auth_step == 3 and st.session_state.authenticated:
             file_name="my_groups.csv",
             mime="text/csv",
         )
+
+    # Display User Lookup Data
+    if "user_data" in st.session_state and st.session_state.user_data:
+        st.write(f"### 👤 User Information ({len(st.session_state.user_data)} users)")
+        df_users = pd.DataFrame(st.session_state.user_data)
+        st.dataframe(df_users)
         
+        # Download options
+        st.subheader("📤 Export User Data")
+        format_option = st.selectbox("Choose export format:", ["CSV", "Excel"], key="user_export_format")
+        
+        if format_option == "CSV":
+            csv_output = io.BytesIO()
+            df_users.to_csv(csv_output, index=False)
+            csv_output.seek(0)
+            st.download_button(
+                "📥 Download as CSV",
+                data=csv_output.getvalue(),
+                file_name="user_data.csv",
+                mime="text/csv",
+            )
+        
+        elif format_option == "Excel":
+            output_xlsx = io.BytesIO()
+            with pd.ExcelWriter(output_xlsx, engine="openpyxl") as writer:
+                df_users.to_excel(writer, sheet_name="User Data", index=False)
+            output_xlsx.seek(0)
+            st.download_button(
+                "📥 Download as Excel",
+                data=output_xlsx.getvalue(),
+                file_name="user_data.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+    
     # ✅ Define color palette
     COLOR_PALETTE = ["#C7074D", "#B4B2B1", "#4C4193", "#0068B2", "#E76863", "#5C6771"]
 

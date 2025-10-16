@@ -228,6 +228,14 @@ elif st.session_state.auth_step == 3 and st.session_state.authenticated:
     else:
         channel_input = ""
 
+    # User IDs input (only show if fetching user lookup)
+    if fetch_option == "User Lookup":
+        user_ids_input = st.text_area(
+            "Enter User IDs (comma-separated):", 
+            placeholder="111411058, 987654321",
+            help="Enter numeric user IDs separated by commas"
+        )
+
     # For Messages, Forwards, and Participants, allow optional date range filtering
     participant_method = "Default"
     start_date = end_date = None

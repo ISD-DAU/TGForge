@@ -299,7 +299,7 @@ elif st.session_state.auth_step == 3 and st.session_state.authenticated:
                     "top_urls", "top_domains", "forward_counts", "daily_volume",
                     "weekly_volume", "monthly_volume", "participants_data",
                     "participants_reported", "participants_fetched", "participants_group_counts",
-                    "subscription_channels", "subscription_groups"]
+                    "subscription_channels", "subscription_groups"]:
         
             if key in st.session_state:
                 del st.session_state[key]

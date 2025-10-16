@@ -7,6 +7,7 @@ from fetch_channel import fetch_channel_data
 from fetch_forwards import fetch_forwards
 from fetch_messages import fetch_messages
 from fetch_participants import fetch_participants
+from fetch_subscriptions import fetch_user_subscriptions
 from telethon import functions, types
 from telethon.errors import PhoneNumberInvalidError, PhoneCodeInvalidError, SessionPasswordNeededError
 import nest_asyncio

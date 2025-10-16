@@ -445,7 +445,7 @@ elif st.session_state.auth_step == 3 and st.session_state.authenticated:
 
     # Display Subscriptions
     if "subscription_channels" in st.session_state and st.session_state.subscription_channels:
-        st.write(f"### 📺 Channels ({len(st.session_state.subscription_channels)})")
+        st.write(f"### Channels ({len(st.session_state.subscription_channels)})")
         df_channels = pd.DataFrame(st.session_state.subscription_channels)
         st.dataframe(df_channels)
         
@@ -461,7 +461,7 @@ elif st.session_state.auth_step == 3 and st.session_state.authenticated:
         )
     
     if "subscription_groups" in st.session_state and st.session_state.subscription_groups:
-        st.write(f"### 👥 Groups/Supergroups ({len(st.session_state.subscription_groups)})")
+        st.write(f"### Groups/Supergroups ({len(st.session_state.subscription_groups)})")
         df_groups = pd.DataFrame(st.session_state.subscription_groups)
         st.dataframe(df_groups)
         

@@ -219,9 +219,12 @@ elif st.session_state.auth_step == 3 and st.session_state.authenticated:
 
     # Choose what to fetch
     fetch_option = st.radio("Select Data to Fetch:", ["Channel Info", "Messages", "Forwards", "Participants", "My Subscriptions"])
-
-    # Channel usernames input
-    channel_input = st.text_area("Enter Telegram channel usernames (comma-separated):", "")
+    
+    # Channel usernames input (only show if not fetching subscriptions)
+    if fetch_option != "My Subscriptions":
+        channel_input = st.text_area("Enter Telegram channel usernames (comma-separated):", "")
+    else:
+        channel_input = ""  # Set empty string so it doesn't break other code
 
     # For Messages, Forwards, and Participants, allow optional date range filtering
     participant_method = "Default"

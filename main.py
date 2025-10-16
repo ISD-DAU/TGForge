@@ -502,7 +502,7 @@ elif st.session_state.auth_step == 3 and st.session_state.authenticated:
 
     # Display User Lookup Data
     if "user_data" in st.session_state and st.session_state.user_data:
-        st.write(f"### 👤 User Information ({len(st.session_state.user_data)} users)")
+        st.write(f"### User Information ({len(st.session_state.user_data)} users)")
         df_users = pd.DataFrame(st.session_state.user_data)
         st.dataframe(df_users)
         

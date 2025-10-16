@@ -231,7 +231,7 @@ elif st.session_state.auth_step == 3 and st.session_state.authenticated:
     # User IDs input (only show if fetching user lookup)
     if fetch_option == "User Lookup":
         user_ids_input = st.text_area(
-            "Enter User IDs or Usernames (comma-separated):", 
+            "Enter Usernames (comma-separated):", 
             placeholder="111411058, bibi_netanyahoo, @username",
             help="Enter numeric user IDs or usernames separated by commas"
         )

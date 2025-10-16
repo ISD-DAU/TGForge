@@ -231,9 +231,9 @@ elif st.session_state.auth_step == 3 and st.session_state.authenticated:
     # User IDs input (only show if fetching user lookup)
     if fetch_option == "User Lookup":
         user_ids_input = st.text_area(
-            "Enter User IDs (comma-separated):", 
-            placeholder="111411058, 987654321",
-            help="Enter numeric user IDs separated by commas"
+            "Enter User IDs or Usernames (comma-separated):", 
+            placeholder="111411058, bibi_netanyahoo, @username",
+            help="Enter numeric user IDs or usernames separated by commas"
         )
 
     # For Messages, Forwards, and Participants, allow optional date range filtering

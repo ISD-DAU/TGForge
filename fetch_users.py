@@ -1,23 +1,30 @@
 # fetch_users.py
 import streamlit as st
 
-async def fetch_user_data(client, user_ids):
-    """Fetches detailed information for users by their IDs."""
+async def fetch_user_data(client, user_identifiers):
+    """Fetches detailed information for users by their IDs or usernames."""
     results = []
     
-    for user_id in user_ids:
+    for identifier in user_identifiers:
         try:
             # Check if cancelled
             if st.session_state.get("cancel_fetch", False):
                 st.warning("Fetch cancelled by user.")
                 break
             
-            # Convert to int if string
-            if isinstance(user_id, str):
-                user_id = int(user_id.strip())
+            identifier = identifier.strip()
             
-            # Get the user entity by ID
-            user = await client.get_entity(user_id)
+            # Try to determine if it's a numeric ID or a username
+            # If it's all digits, treat as user ID (convert to int)
+            # Otherwise, treat as username (keep as string)
+            if identifier.isdigit():
+                user_input = int(identifier)
+            else:
+                # It's a username - keep as string, remove @ if present
+                user_input = identifier.lstrip('@')
+            
+            # Get the user entity by ID or username
+            user = await client.get_entity(user_input)
             
             # Extract photo information
             photo_id = None
@@ -77,15 +84,15 @@ async def fetch_user_data(client, user_ids):
             results.append(user_info)
             
         except ValueError as e:
-            st.error(f"Invalid user ID format: {user_id}")
+            st.error(f"Invalid format: {identifier}")
             results.append({
-                'User ID': user_id,
-                'Error': f"Invalid ID format: {e}"
+                'Input': identifier,
+                'Error': f"Invalid format: {e}"
             })
         except Exception as e:
-            st.error(f"Error fetching user ID {user_id}: {e}")
+            st.error(f"Error fetching user '{identifier}': {e}")
             results.append({
-                'User ID': user_id,
+                'Input': identifier,
                 'Error': str(e)
             })
     

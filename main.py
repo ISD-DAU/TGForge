@@ -218,7 +218,7 @@ elif st.session_state.auth_step == 3 and st.session_state.authenticated:
     st.subheader("Fetch Telegram Channel Data")
 
     # Choose what to fetch
-    fetch_option = st.radio("Select Data to Fetch:", ["Channel Info", "Messages", "Forwards", "Participants"])
+    fetch_option = st.radio("Select Data to Fetch:", ["Channel Info", "Messages", "Forwards", "Participants", "My Subscriptions"])
 
     # Channel usernames input
     channel_input = st.text_area("Enter Telegram channel usernames (comma-separated):", "")
@@ -283,6 +283,12 @@ elif st.session_state.auth_step == 3 and st.session_state.authenticated:
                      st.session_state.participants_group_counts) = st.session_state.event_loop.run_until_complete(
                         fetch_participants(st.session_state.client, groups, method="messages", start_date=start_date, end_date=end_date)
                     )
+    elif fetch_option == "My Subscriptions":
+        if st.button("Fetch My Subscriptions"):
+            st.session_state.subscription_channels, st.session_state.subscription_groups = \
+                st.session_state.event_loop.run_until_complete(
+                    fetch_user_subscriptions(st.session_state.client)
+                )
 
     # --- Refresh Button (Clears Display But Keeps Data) ---
     if st.button("🔄 Refresh / Cancel"):
@@ -292,7 +298,9 @@ elif st.session_state.auth_step == 3 and st.session_state.authenticated:
         for key in ["channel_data", "forwards_data", "messages_data", "top_hashtags",
                     "top_urls", "top_domains", "forward_counts", "daily_volume",
                     "weekly_volume", "monthly_volume", "participants_data",
-                    "participants_reported", "participants_fetched", "participants_group_counts"]:
+                    "participants_reported", "participants_fetched", "participants_group_counts",
+                    "subscription_channels", "subscription_groups"]
+        
             if key in st.session_state:
                 del st.session_state[key]
         # Clear the cancellation flag for the next run
@@ -435,6 +443,39 @@ elif st.session_state.auth_step == 3 and st.session_state.authenticated:
         # Optionally, write a summary below the tabs
         st.write("Total unique participants collected:", len(aggregated))
 
+    # Display Subscriptions
+    if "subscription_channels" in st.session_state and st.session_state.subscription_channels:
+        st.write(f"### 📺 Channels ({len(st.session_state.subscription_channels)})")
+        df_channels = pd.DataFrame(st.session_state.subscription_channels)
+        st.dataframe(df_channels)
+        
+        # Download option
+        csv_output = io.BytesIO()
+        df_channels.to_csv(csv_output, index=False)
+        csv_output.seek(0)
+        st.download_button(
+            "📥 Download Channels (CSV)",
+            data=csv_output.getvalue(),
+            file_name="my_channels.csv",
+            mime="text/csv",
+        )
+    
+    if "subscription_groups" in st.session_state and st.session_state.subscription_groups:
+        st.write(f"### 👥 Groups/Supergroups ({len(st.session_state.subscription_groups)})")
+        df_groups = pd.DataFrame(st.session_state.subscription_groups)
+        st.dataframe(df_groups)
+        
+        # Download option
+        csv_output = io.BytesIO()
+        df_groups.to_csv(csv_output, index=False)
+        csv_output.seek(0)
+        st.download_button(
+            "📥 Download Groups (CSV)",
+            data=csv_output.getvalue(),
+            file_name="my_groups.csv",
+            mime="text/csv",
+        )
+        
     # ✅ Define color palette
     COLOR_PALETTE = ["#C7074D", "#B4B2B1", "#4C4193", "#0068B2", "#E76863", "#5C6771"]
 

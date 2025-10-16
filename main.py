@@ -227,15 +227,6 @@ elif st.session_state.auth_step == 3 and st.session_state.authenticated:
         channel_input = st.text_area("Enter Telegram channel usernames (comma-separated):", "")
     else:
         channel_input = ""
-    
-    # User IDs input (only show if fetching user lookup)
-    if fetch_option == "User Lookup":
-        user_ids_input = st.text_area(
-            "Enter User IDs (comma-separated):", 
-            placeholder="111411058, 987654321",
-            help="Enter numeric user IDs separated by commas"
-        )
-        st.info("💡 Note: You can only look up users that Telethon has cached (from mutual groups/channels)")
 
     # For Messages, Forwards, and Participants, allow optional date range filtering
     participant_method = "Default"
@@ -303,6 +294,17 @@ elif st.session_state.auth_step == 3 and st.session_state.authenticated:
                 st.session_state.event_loop.run_until_complete(
                     fetch_user_subscriptions(st.session_state.client)
                 )
+
+    elif fetch_option == "User Lookup":
+        if st.button("Fetch User Data"):
+            if user_ids_input:
+                # Parse user IDs from input
+                user_ids = [uid.strip() for uid in user_ids_input.split(",") if uid.strip()]
+                st.session_state.user_data = st.session_state.event_loop.run_until_complete(
+                    fetch_user_data(st.session_state.client, user_ids)
+                )
+            else:
+                st.warning("Please enter at least one user ID")
 
     # --- Refresh Button (Clears Display But Keeps Data) ---
     if st.button("🔄 Refresh / Cancel"):
